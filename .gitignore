@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.swiftpm/
+.dmg_staging/
+AppIcon.iconset/
+AppIcon.icns
+GhostMouse.app/
+GhostMouse.dmg
+GhostMouse.zip
