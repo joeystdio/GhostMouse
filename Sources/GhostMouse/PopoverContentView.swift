@@ -589,11 +589,11 @@ struct PopoverContentView: View {
     
     // MARK: - Bottom Bar
     private var bottomBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button {
                 engine.performJiggle()
             } label: {
-                HStack {
+                HStack(spacing: 5) {
                     Image(systemName: "bolt.fill")
                     Text("Test Pulse Now")
                 }
@@ -607,9 +607,33 @@ struct PopoverContentView: View {
             .buttonStyle(.plain)
             
             Button {
+                if let url = URL(string: "https://github.com/sponsors/joeystdio") {
+                    NSWorkspace.shared.open(url)
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "cup.and.saucer.fill")
+                        .foregroundColor(.yellow)
+                    Text("Buy Me a Coffee")
+                }
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Color.yellow.opacity(0.14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.yellow.opacity(0.35), lineWidth: 1)
+                )
+                .foregroundColor(.white)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help("Support GhostMouse development on GitHub Sponsors")
+            
+            Button {
                 NSApplication.shared.terminate(nil)
             } label: {
-                HStack {
+                HStack(spacing: 5) {
                     Image(systemName: "power")
                     Text("Quit")
                 }
