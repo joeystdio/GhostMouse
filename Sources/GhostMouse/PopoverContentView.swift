@@ -607,7 +607,7 @@ struct PopoverContentView: View {
             .buttonStyle(.plain)
             
             Button {
-                if let url = URL(string: "https://github.com/sponsors/joeystdio") {
+                if let url = URL(string: "https://paypal.me/joeystdio") {
                     NSWorkspace.shared.open(url)
                 }
             } label: {
@@ -628,7 +628,7 @@ struct PopoverContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
-            .help("Support GhostMouse development on GitHub Sponsors")
+            .help("Buy Joey a coffee via PayPal (paypal.me/joeystdio)")
             
             Button {
                 NSApplication.shared.terminate(nil)
