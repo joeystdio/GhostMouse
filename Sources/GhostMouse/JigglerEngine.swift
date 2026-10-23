@@ -237,9 +237,9 @@ final class JigglerEngine: ObservableObject {
     
     // MARK: - Timers & Schedule
     private func startMainTickLoop() {
-        mainTickTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        mainTickTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
             Task { @MainActor in
-                self?.onMainTick()
+                JigglerEngine.shared.onMainTick()
             }
         }
     }
@@ -249,9 +249,9 @@ final class JigglerEngine: ObservableObject {
         jiggleTimer = nil
         guard isEnabled else { return }
         let interval = TimeInterval(max(1, moveEverySeconds))
-        jiggleTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        jiggleTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
             Task { @MainActor in
-                self?.onJiggleTick()
+                JigglerEngine.shared.onJiggleTick()
             }
         }
     }
@@ -376,9 +376,9 @@ final class JigglerEngine: ObservableObject {
         }
         
         // Also monitor local events when user types or moves outside the toggle switch
-        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { [weak self] event in
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { event in
             Task { @MainActor in
-                self?.handleDetectedUserActivity()
+                JigglerEngine.shared.handleDetectedUserActivity()
             }
             return event
         }

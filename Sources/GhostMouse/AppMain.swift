@@ -19,6 +19,7 @@ final class StatusPanel: NSPanel {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static weak var sharedInstance: AppDelegate?
     private var statusItem: NSStatusItem!
     private var panel: StatusPanel!
     private var hostingController: NSHostingController<PopoverContentView>!
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var localKeyMonitor: Any?
     
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Self.sharedInstance = self
         setupStatusItem()
         setupPanel()
         
@@ -124,16 +126,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         
-        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { _ in
             Task { @MainActor in
-                self?.closePanel()
+                AppDelegate.sharedInstance?.closePanel()
             }
         }
         
-        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { event in
             if event.keyCode == 53 { // Escape key closes panel
                 Task { @MainActor in
-                    self?.closePanel()
+                    AppDelegate.sharedInstance?.closePanel()
                 }
                 return nil
             }
