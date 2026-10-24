@@ -5,7 +5,7 @@
 <h1 align="center">GhostMouse</h1>
 
 <p align="center">
-  <strong>Invisible stealth mouse mover & awake utility for macOS — 100% free, native Swift, no paywalls.</strong>
+  <strong>Invisible stealth mouse mover & awake utility for macOS — 100% free, open-source, native Swift.</strong>
 </p>
 
 <p align="center">
@@ -79,7 +79,7 @@ This compiles a Universal Binary (`arm64` Apple Silicon + `x86_64` Intel), gener
 
 ## ☕ Support & Buy Me a Coffee
 
-GhostMouse is 100% free and open-source with all "Pro" features unlocked for everyone. If it saves your status bar or keeps your workflows humming, consider buying me a coffee!
+GhostMouse is 100% free and open-source. If it saves your status bar or keeps your workflows humming, consider buying me a coffee!
 
 <p align="left">
   <a href="https://buymeacoffee.com/joeystdio">
