@@ -16,8 +16,8 @@
     <img src="https://img.shields.io/github/v/release/joeystdio/GhostMouse?style=for-the-badge&color=blue" alt="Latest Release">
   </a>
   <img src="https://img.shields.io/badge/macOS-14.0%2B%20(Universal)-success?style=for-the-badge&logo=apple" alt="macOS 14+ Universal">
-  <a href="https://paypal.me/joeystdio">
-    <img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-PayPal-FFDD00?style=for-the-badge&logo=paypal&logoColor=black" alt="Buy Me a Coffee via PayPal">
+  <a href="https://buymeacoffee.com/joeystdio">
+    <img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-joeystdio-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee">
   </a>
 </p>
 
@@ -79,11 +79,14 @@ This compiles a Universal Binary (`arm64` Apple Silicon + `x86_64` Intel), gener
 
 ## ☕ Support & Buy Me a Coffee
 
-GhostMouse is 100% free and open-source with all "Pro" features unlocked for everyone. If it saves your status bar or keeps your workflows humming, consider buying me a coffee via PayPal!
+GhostMouse is 100% free and open-source with all "Pro" features unlocked for everyone. If it saves your status bar or keeps your workflows humming, consider buying me a coffee!
 
 <p align="left">
+  <a href="https://buymeacoffee.com/joeystdio">
+    <img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-buymeacoffee.com%2Fjoeystdio-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me a Coffee">
+  </a>
   <a href="https://paypal.me/joeystdio">
-    <img src="https://img.shields.io/badge/☕_Buy_Me_a_Coffee-paypal.me%2Fjoeystdio-FFDD00?style=for-the-badge&logo=paypal&logoColor=black" alt="Buy Me a Coffee via PayPal">
+    <img src="https://img.shields.io/badge/💳_PayPal-paypal.me%2Fjoeystdio-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Support via PayPal">
   </a>
 </p>
 
