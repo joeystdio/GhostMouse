@@ -3,6 +3,8 @@ set -e
 
 cd "$(dirname "$0")"
 ROOT_DIR="$(pwd)"
+KEYCHAIN_PROFILE="${KEYCHAIN_PROFILE:-notarytool-profile}"
+SIGN_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -n 1 | awk -F'"' '{print $2}')
 
 ./build_app.sh
 
@@ -24,15 +26,23 @@ hdiutil create -volname "GhostMouse" \
 
 rm -rf "$STAGING_DIR"
 
-# Also create a notarization/release zip
-ditto -c -k --keepParent "$ROOT_DIR/GhostMouse.app" "$ZIP_PATH"
+if [ -n "$SIGN_IDENTITY" ]; then
+    echo "5. Signing GhostMouse.dmg with $SIGN_IDENTITY..."
+    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG_PATH"
 
-# Optional Apple Notarization if KEYCHAIN_PROFILE is set (e.g. KEYCHAIN_PROFILE="notarytool-profile" ./release_dmg.sh)
-if [ -n "$KEYCHAIN_PROFILE" ]; then
-    echo "5. Submitting GhostMouse.dmg to Apple Notary Service..."
+    echo "6. Submitting GhostMouse.dmg to Apple Notary Service..."
     xcrun notarytool submit "$DMG_PATH" --keychain-profile "$KEYCHAIN_PROFILE" --wait
+
+    echo "7. Stapling Apple Notarization ticket to GhostMouse.dmg and GhostMouse.app..."
     xcrun stapler staple "$DMG_PATH"
+    xcrun stapler staple "$ROOT_DIR/GhostMouse.app"
+
+    echo "8. Verifying Gatekeeper assessment..."
+    spctl -a -vv "$ROOT_DIR/GhostMouse.app"
 fi
+
+# Create release zip from the stapled .app
+ditto -c -k --keepParent "$ROOT_DIR/GhostMouse.app" "$ZIP_PATH"
 
 echo "Done!"
 ls -lh "$DMG_PATH" "$ZIP_PATH"
