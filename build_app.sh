@@ -61,17 +61,15 @@ EOF
 
 xattr -cr "$APP_DIR"
 
-# Auto-detect best signing identity: prefer Developer ID Application, then Apple Development, then ad-hoc
+# For public distribution, only use "Developer ID Application" if available; otherwise sign ad-hoc (-)
+# Never use "Apple Development" for public DMGs as macOS blocks dev-signed binaries on other machines.
 SIGN_IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -n 1 | awk -F'"' '{print $2}')
-if [ -z "$SIGN_IDENTITY" ]; then
-    SIGN_IDENTITY=$(security find-identity -v -p codesigning | grep "Apple Development" | tail -n 1 | awk -F'"' '{print $2}')
-fi
 
 if [ -n "$SIGN_IDENTITY" ]; then
-    echo "3. Signing with identity: $SIGN_IDENTITY (Hardened Runtime enabled)..."
+    echo "3. Signing with Developer ID: $SIGN_IDENTITY (Hardened Runtime enabled)..."
     codesign --force --deep --options runtime --timestamp --sign "$SIGN_IDENTITY" "$APP_DIR"
 else
-    echo "3. Signing ad-hoc..."
+    echo "3. Signing universal ad-hoc for public distribution..."
     codesign --force --deep --sign - "$APP_DIR"
 fi
 
