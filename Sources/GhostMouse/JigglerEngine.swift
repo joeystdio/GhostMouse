@@ -65,7 +65,7 @@ final class JigglerEngine: ObservableObject {
         }
     }
     
-    /// True when enabled, but currently waiting for user idle threshold or schedule window
+    /// True when enabled, but currently waiting for user idle threshold (either right after activation or during Smart Pause)
     @Published var isPausedForUserActivity: Bool = false
     @Published var isWaitingForSchedule: Bool = false
     @Published var currentIdleSeconds: Int = 0
@@ -78,11 +78,11 @@ final class JigglerEngine: ObservableObject {
         didSet { UserDefaults.standard.set(jiggleMode.rawValue, forKey: "jiggleMode") }
     }
     
-    @Published var activityResponse: ActivityResponseMode = .autoDeactivate {
+    @Published var activityResponse: ActivityResponseMode = .smartResume {
         didSet { UserDefaults.standard.set(activityResponse.rawValue, forKey: "activityResponse") }
     }
     
-    /// Seconds of inactivity before starting/resuming (0 = immediate, 3, 10, 30, 60, 180, 300)
+    /// Seconds of inactivity before starting/resuming (3, 10, 30, 60, 180, 300)
     @Published var startMovingAfterSeconds: Int = 3 {
         didSet { UserDefaults.standard.set(startMovingAfterSeconds, forKey: "startMovingAfterSeconds") }
     }
@@ -149,9 +149,12 @@ final class JigglerEngine: ObservableObject {
     // Internal state
     private let syntheticTag: Int64 = 0x4A494747 // "JIGG"
     private var lastSyntheticEventTime: TimeInterval = 0
+    private var isPerformingSyntheticMove: Bool = false
     private var lastKnownMouseLocation: CGPoint = NSEvent.mouseLocation
     private var activationTime: Date = .distantPast
     private var lastRealUserActivityTime: Date = Date()
+    /// Tracks whether GhostMouse has finished its initial idle wait after being enabled
+    private var hasCompletedInitialIdleWait: Bool = false
     private var sleepAssertionID: IOPMAssertionID = 0
     private var hasSleepAssertion: Bool = false
     
@@ -160,6 +163,23 @@ final class JigglerEngine: ObservableObject {
     private var globalEventMonitor: Any?
     private var localEventMonitor: Any?
     private var hotKeyRef: EventHotKeyRef?
+    
+    /// All non-mouse-move hardware HID event types (keyboard keys, modifiers, clicks, drags, scroll wheel)
+    private static let nonMoveHIDEventTypes: [CGEventType] = [
+        .keyDown,
+        .keyUp,
+        .flagsChanged,
+        .leftMouseDown,
+        .leftMouseUp,
+        .rightMouseDown,
+        .rightMouseUp,
+        .otherMouseDown,
+        .otherMouseUp,
+        .leftMouseDragged,
+        .rightMouseDragged,
+        .otherMouseDragged,
+        .scrollWheel
+    ]
     
     var onStatusChange: (() -> Void)?
     
@@ -173,7 +193,10 @@ final class JigglerEngine: ObservableObject {
         let d = UserDefaults.standard
         if let m = d.string(forKey: "jiggleMode"), let mode = JiggleMode(rawValue: m) { jiggleMode = mode }
         if let a = d.string(forKey: "activityResponse"), let resp = ActivityResponseMode(rawValue: a) { activityResponse = resp }
-        if d.object(forKey: "startMovingAfterSeconds") != nil { startMovingAfterSeconds = d.integer(forKey: "startMovingAfterSeconds") }
+        if d.object(forKey: "startMovingAfterSeconds") != nil {
+            let val = d.integer(forKey: "startMovingAfterSeconds")
+            if val > 0 { startMovingAfterSeconds = val }
+        }
         if d.object(forKey: "moveEverySeconds") != nil {
             let val = d.integer(forKey: "moveEverySeconds")
             if val > 0 { moveEverySeconds = val }
@@ -203,18 +226,18 @@ final class JigglerEngine: ObservableObject {
         if isEnabled {
             activationTime = Date()
             lastRealUserActivityTime = Date()
+            currentIdleSeconds = 0
             lastKnownMouseLocation = NSEvent.mouseLocation
-            isPausedForUserActivity = false
+            // Start in "waiting for idle" state so activating GhostMouse never jerks the mouse while the user is still holding it!
+            hasCompletedInitialIdleWait = false
+            isPausedForUserActivity = true
             acquireSleepAssertion()
             startActivityMonitoring()
             setupDeactivateCountdown()
             restartJiggleTimerIfNeeded()
-            // Perform an immediate subtle pulse on start if not waiting for schedule
-            if !checkIsWaitingForSchedule() {
-                performJiggle()
-            }
         } else {
             isPausedForUserActivity = false
+            hasCompletedInitialIdleWait = false
             isWaitingForSchedule = false
             remainingSeconds = nil
             jiggleTimer?.invalidate()
@@ -235,9 +258,23 @@ final class JigglerEngine: ObservableObject {
         }
     }
     
+    // MARK: - Hardware-Level Keyboard & Mouse Idle Check
+    /// Queries macOS WindowServer for any recent keyboard key press, modifier key, mouse click, drag, or scroll wheel event.
+    /// Works across all apps without requiring Input Monitoring / keylogger permissions.
+    private static func secondsSinceLastNonMoveHIDInput() -> CFTimeInterval {
+        var minSecs: CFTimeInterval = 999999.0
+        for eventType in nonMoveHIDEventTypes {
+            let secs = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: eventType)
+            if secs < minSecs {
+                minSecs = secs
+            }
+        }
+        return minSecs
+    }
+    
     // MARK: - Timers & Schedule
     private func startMainTickLoop() {
-        mainTickTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+        mainTickTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { _ in
             Task { @MainActor in
                 JigglerEngine.shared.onMainTick()
             }
@@ -280,48 +317,55 @@ final class JigglerEngine: ObservableObject {
         }
     }
     
-    private static var halfSecondToggle = false
+    private static var tickCounter: Int = 0
     
     private func onMainTick() {
         hasAccessibilityPermission = AXIsProcessTrusted()
-        let idle = Int(Date().timeIntervalSince(lastRealUserActivityTime))
-        currentIdleSeconds = idle
         
-        // Check physical cursor delta fallback (catches mouse movement even if event monitors are filtered)
+        // 1. Check hardware HID keyboard / click / scroll / drag activity across the entire Mac
+        let nonMoveIdle = Self.secondsSinceLastNonMoveHIDInput()
+        if nonMoveIdle < 0.35 {
+            handleDetectedUserActivity()
+        }
+        
+        // 2. Check physical cursor movement delta
         let currentPos = NSEvent.mouseLocation
         let dx = abs(currentPos.x - lastKnownMouseLocation.x)
         let dy = abs(currentPos.y - lastKnownMouseLocation.y)
         let timeSinceSynthetic = ProcessInfo.processInfo.systemUptime - lastSyntheticEventTime
         
-        if (dx > 2.5 || dy > 2.5) && timeSinceSynthetic > 0.25 {
+        if !isPerformingSyntheticMove && (dx > 2.0 || dy > 2.0) && timeSinceSynthetic > 0.20 {
             lastKnownMouseLocation = currentPos
             handleDetectedUserActivity()
         } else {
             lastKnownMouseLocation = currentPos
         }
         
+        let idle = Int(Date().timeIntervalSince(lastRealUserActivityTime))
+        currentIdleSeconds = idle
+        
         guard isEnabled else { return }
         
-        // Update schedule state
+        // 3. Update schedule state
         let waitingSched = checkIsWaitingForSchedule()
         if waitingSched != isWaitingForSchedule {
             isWaitingForSchedule = waitingSched
             onStatusChange?()
         }
         
-        // Update smart pause resume state
-        if isPausedForUserActivity && activityResponse == .smartResume {
+        // 4. Transition out of initial wait or Smart Pause once the user has been idle for `startMovingAfterSeconds`
+        if isPausedForUserActivity {
             let threshold = max(1, startMovingAfterSeconds)
             if idle >= threshold {
                 isPausedForUserActivity = false
+                hasCompletedInitialIdleWait = true
                 onStatusChange?()
-                performJiggle()
             }
         }
         
-        // Update countdown every 1.0s (every 2 ticks of 0.5s)
-        Self.halfSecondToggle.toggle()
-        if Self.halfSecondToggle, let rem = remainingSeconds {
+        // 5. Update countdown every 1.0s (every 4 ticks of 0.25s)
+        Self.tickCounter = (Self.tickCounter + 1) % 4
+        if Self.tickCounter == 0, let rem = remainingSeconds {
             if rem <= 1 {
                 isEnabled = false
             } else {
@@ -362,21 +406,19 @@ final class JigglerEngine: ObservableObject {
         
         let mask: NSEvent.EventTypeMask = [
             .mouseMoved, .leftMouseDown, .rightMouseDown, .otherMouseDown,
-            .scrollWheel, .keyDown, .flagsChanged
+            .leftMouseDragged, .rightMouseDragged, .scrollWheel, .keyDown, .flagsChanged
         ]
         
-        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
-            guard let self = self else { return }
-            if let cgEvent = event.cgEvent, cgEvent.getIntegerValueField(.eventSourceUserData) == self.syntheticTag {
+        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
+            if let cgEvent = event.cgEvent, cgEvent.getIntegerValueField(.eventSourceUserData) == JigglerEngine.shared.syntheticTag {
                 return
             }
             Task { @MainActor in
-                self.handleDetectedUserActivity()
+                JigglerEngine.shared.handleDetectedUserActivity()
             }
         }
         
-        // Also monitor local events when user types or moves outside the toggle switch
-        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .scrollWheel]) { event in
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .scrollWheel]) { event in
             Task { @MainActor in
                 JigglerEngine.shared.handleDetectedUserActivity()
             }
@@ -400,10 +442,12 @@ final class JigglerEngine: ObservableObject {
         currentIdleSeconds = 0
         
         guard isEnabled else { return }
+        
         // Ignore the first 1.2 seconds right after clicking the toggle button in the menu bar
         guard Date().timeIntervalSince(activationTime) > 1.2 else { return }
-        // Ignore if this happened within 200ms of our own synthetic event
-        guard (ProcessInfo.processInfo.systemUptime - lastSyntheticEventTime) > 0.2 else { return }
+        
+        // If we haven't even finished the initial idle wait after enabling yet, just keep resetting the idle timer!
+        guard hasCompletedInitialIdleWait else { return }
         
         switch activityResponse {
         case .autoDeactivate:
@@ -418,6 +462,19 @@ final class JigglerEngine: ObservableObject {
     
     // MARK: - Stealth & Natural Jiggling
     func performJiggle() {
+        // If user just pressed a key or clicked right as the tick fired, abort immediately
+        if Self.secondsSinceLastNonMoveHIDInput() < 0.25 {
+            handleDetectedUserActivity()
+            return
+        }
+        
+        isPerformingSyntheticMove = true
+        defer {
+            isPerformingSyntheticMove = false
+            lastSyntheticEventTime = ProcessInfo.processInfo.systemUptime
+            lastKnownMouseLocation = NSEvent.mouseLocation
+        }
+        
         lastSyntheticEventTime = ProcessInfo.processInfo.systemUptime
         
         // 1. Reset system HID idle timer at the IOKit power management level
@@ -430,15 +487,11 @@ final class JigglerEngine: ObservableObject {
         
         // 2. Post HID mouse event
         let currentAppKitLoc = NSEvent.mouseLocation
-        // Convert AppKit bottom-left screen coordinates to CoreGraphics top-left screen coordinates
         let primaryScreenHeight = NSScreen.screens.first?.frame.height ?? 1080
         let cgCenter = CGPoint(x: currentAppKitLoc.x, y: primaryScreenHeight - currentAppKitLoc.y)
         
         switch jiggleMode {
         case .stealth:
-            // Stealth Mode: Like Windows Mouse Mover "Stealth", post a zero-displacement or micro sub-pixel
-            // HID mouseMoved event with deltaX=1, deltaY=0 followed immediately by deltaX=-1, deltaY=0 at the exact same coordinates
-            // so the visual cursor never moves a single pixel on screen, while Slack/Teams/macOS register HID mouse movement!
             postSyntheticMouseMove(at: cgCenter, deltaX: 1, deltaY: 0)
             postSyntheticMouseMove(at: cgCenter, deltaX: -1, deltaY: 0)
             
@@ -449,14 +502,21 @@ final class JigglerEngine: ObservableObject {
             let targetY = cgCenter.y + CGFloat(sin(angle)) * radius
             let steps = 12
             for step in 1...steps {
+                if Self.secondsSinceLastNonMoveHIDInput() < 0.2 {
+                    handleDetectedUserActivity()
+                    return
+                }
                 let t = CGFloat(step) / CGFloat(steps)
                 let ix = cgCenter.x + (targetX - cgCenter.x) * t
                 let iy = cgCenter.y + (targetY - cgCenter.y) * t
                 postSyntheticMouseMove(at: CGPoint(x: ix, y: iy), deltaX: Int64(targetX - cgCenter.x) / Int64(steps), deltaY: Int64(targetY - cgCenter.y) / Int64(steps))
                 usleep(8000)
             }
-            // Return smoothly back to original spot so cursor doesn't drift off-screen
             for step in 1...steps {
+                if Self.secondsSinceLastNonMoveHIDInput() < 0.2 {
+                    handleDetectedUserActivity()
+                    return
+                }
                 let t = CGFloat(step) / CGFloat(steps)
                 let ix = targetX + (cgCenter.x - targetX) * t
                 let iy = targetY + (cgCenter.y - targetY) * t
@@ -465,8 +525,6 @@ final class JigglerEngine: ObservableObject {
             }
         }
         
-        lastSyntheticEventTime = ProcessInfo.processInfo.systemUptime
-        lastKnownMouseLocation = NSEvent.mouseLocation
         jiggleCount += 1
     }
     

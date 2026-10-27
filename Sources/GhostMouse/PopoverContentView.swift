@@ -458,7 +458,7 @@ struct PopoverContentView: View {
             
             // Row 2: Start / Resume After Idle
             HStack {
-                Text("Resume After Idle")
+                Text("Start / Resume After Idle")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.white)
                 
@@ -475,8 +475,6 @@ struct PopoverContentView: View {
                 .labelsHidden()
                 .frame(width: 95)
             }
-            .opacity(engine.activityResponse == .smartResume ? 1.0 : 0.45)
-            .disabled(engine.activityResponse != .smartResume)
             
             Divider().background(Color.white.opacity(0.1))
             
